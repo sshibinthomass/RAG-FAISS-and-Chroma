@@ -118,7 +118,10 @@ class ChromaStore:
 
     def clear(self) -> None:
         """Clear all documents from the collection."""
-        self.collection.delete(where={})
+        # Get all IDs in the collection
+        all_ids = self.collection.get()['ids']
+        if all_ids:
+            self.collection.delete(ids=all_ids)
         print(f"Cleared all documents from collection '{self.collection_name}'")
 
     def count(self) -> int:

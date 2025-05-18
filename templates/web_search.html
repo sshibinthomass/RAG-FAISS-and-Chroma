@@ -1,0 +1,411 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Web Search RAG System</title>
+    <link
+      rel="stylesheet"
+      href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css"
+    />
+    <link
+      rel="stylesheet"
+      href="{{ url_for('static', filename='css/style.css') }}"
+    />
+    <style>
+      .search-result {
+        margin-bottom: 15px;
+        padding: 15px;
+        border-radius: 8px;
+        background-color: #f8f9fa;
+        border-left: 4px solid #007bff;
+      }
+      .search-result-title {
+        font-weight: bold;
+        color: #007bff;
+        margin-bottom: 5px;
+      }
+      .search-result-url {
+        color: #28a745;
+        font-size: 0.8rem;
+        margin-bottom: 8px;
+        word-break: break-all;
+      }
+      .search-result-content {
+        font-size: 0.9rem;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="container-fluid">
+      <div class="row">
+        <!-- Sidebar -->
+        <div class="col-md-3 sidebar">
+          <div class="sidebar-header">
+            <h3>Web Search RAG</h3>
+            <p class="text-muted">Powered by DuckDuckGo</p>
+          </div>
+
+          <div class="sidebar-section">
+            <h5>Model Selection</h5>
+            <div class="d-flex align-items-center mb-2">
+              <select
+                id="model-select"
+                class="form-select me-2"
+                aria-label="Select LLM model"
+              >
+                {% for model in models %}
+                <option value="{{ model }}">{{ model }}</option>
+                {% endfor %}
+              </select>
+              <button
+                id="refresh-models-btn"
+                class="btn btn-sm btn-secondary"
+                type="button"
+                title="Refresh model list"
+              >
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  width="16"
+                  height="16"
+                  fill="currentColor"
+                  class="bi bi-arrow-clockwise"
+                  viewBox="0 0 16 16"
+                >
+                  <path
+                    fill-rule="evenodd"
+                    d="M8 3a5 5 0 1 0 4.546 2.914.5.5 0 0 1 .908-.417A6 6 0 1 1 8 2v1z"
+                  />
+                  <path
+                    d="M8 4.466V.534a.25.25 0 0 1 .41-.192l2.36 1.966c.12.1.12.284 0 .384L8.41 4.658A.25.25 0 0 1 8 4.466z"
+                  />
+                </svg>
+              </button>
+            </div>
+            <div class="small text-muted mb-2">
+              Click the refresh button to update the model list from Ollama.
+            </div>
+          </div>
+
+          <div class="sidebar-section">
+            <h5>About</h5>
+            <div class="small text-muted mb-3">
+              <p>
+                This RAG system uses DuckDuckGo to search the web for
+                information and Ollama for generating answers.
+              </p>
+              <p>
+                Ask any question and the system will search the web for relevant
+                information before generating a response.
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <!-- Main Content -->
+        <div class="col-md-9 main-content">
+          <div class="chat-container">
+            <div id="chat-messages" class="chat-messages"></div>
+
+            <div class="chat-input-container">
+              <form id="query-form">
+                <div class="input-group">
+                  <input
+                    type="text"
+                    id="query-input"
+                    class="form-control"
+                    placeholder="Ask anything..."
+                  />
+                  <button type="submit" class="btn btn-primary">Search</button>
+                </div>
+              </form>
+            </div>
+          </div>
+
+          <div class="documents-container">
+            <h5>Search Results</h5>
+            <div id="documents-list" class="documents-list"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Loading Overlay -->
+    <div id="loading-overlay" class="loading-overlay d-none">
+      <div class="spinner-border text-light" role="status">
+        <span class="visually-hidden">Loading...</span>
+      </div>
+    </div>
+
+    <!-- Toast Notifications -->
+    <div class="toast-container position-fixed bottom-0 end-0 p-3">
+      <div
+        id="toast"
+        class="toast"
+        role="alert"
+        aria-live="assertive"
+        aria-atomic="true"
+      >
+        <div class="toast-header">
+          <strong class="me-auto" id="toast-title">Notification</strong>
+          <button
+            type="button"
+            class="btn-close"
+            data-bs-dismiss="toast"
+            aria-label="Close"
+          ></button>
+        </div>
+        <div class="toast-body" id="toast-message"></div>
+      </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <script>
+      document.addEventListener("DOMContentLoaded", function () {
+        // DOM Elements
+        const modelSelect = document.getElementById("model-select");
+        const refreshModelsBtn = document.getElementById("refresh-models-btn");
+        const queryForm = document.getElementById("query-form");
+        const queryInput = document.getElementById("query-input");
+        const chatMessages = document.getElementById("chat-messages");
+        const documentsList = document.getElementById("documents-list");
+        const loadingOverlay = document.getElementById("loading-overlay");
+        const toast = document.getElementById("toast");
+        const toastTitle = document.getElementById("toast-title");
+        const toastMessage = document.getElementById("toast-message");
+
+        // Bootstrap toast instance
+        const toastInstance = new bootstrap.Toast(toast);
+
+        // Show notification
+        function showNotification(title, message, isError = false) {
+          toastTitle.textContent = title;
+          toastMessage.textContent = message;
+          toast.classList.remove("bg-danger", "text-white");
+
+          if (isError) {
+            toast.classList.add("bg-danger", "text-white");
+          }
+
+          toastInstance.show();
+        }
+
+        // Show loading overlay
+        function showLoading() {
+          loadingOverlay.classList.remove("d-none");
+        }
+
+        // Hide loading overlay
+        function hideLoading() {
+          loadingOverlay.classList.add("d-none");
+        }
+
+        // Add message to chat
+        function addMessage(content, isUser = false) {
+          const messageDiv = document.createElement("div");
+          messageDiv.classList.add(
+            "message",
+            isUser ? "user-message" : "assistant-message"
+          );
+
+          const contentDiv = document.createElement("div");
+          contentDiv.classList.add("message-content");
+
+          // Use marked.js to render markdown if it's an assistant message
+          if (!isUser) {
+            contentDiv.innerHTML = marked.parse(content);
+          } else {
+            contentDiv.textContent = content;
+          }
+
+          messageDiv.appendChild(contentDiv);
+          chatMessages.appendChild(messageDiv);
+          chatMessages.scrollTop = chatMessages.scrollHeight;
+        }
+
+        // Display search results
+        function displaySearchResults(documents) {
+          documentsList.innerHTML = "";
+
+          if (documents.length === 0) {
+            documentsList.innerHTML =
+              "<p>No relevant search results found.</p>";
+            return;
+          }
+
+          documents.forEach((doc) => {
+            const resultDiv = document.createElement("div");
+            resultDiv.classList.add("search-result");
+
+            const titleDiv = document.createElement("div");
+            titleDiv.classList.add("search-result-title");
+            titleDiv.textContent = doc.title;
+
+            const urlDiv = document.createElement("div");
+            urlDiv.classList.add("search-result-url");
+
+            const urlLink = document.createElement("a");
+            urlLink.href = doc.url;
+            urlLink.textContent = doc.url;
+            urlLink.target = "_blank";
+            urlLink.rel = "noopener noreferrer";
+
+            urlDiv.appendChild(urlLink);
+
+            const contentDiv = document.createElement("div");
+            contentDiv.classList.add("search-result-content");
+            contentDiv.textContent = doc.content;
+
+            resultDiv.appendChild(titleDiv);
+            resultDiv.appendChild(urlDiv);
+            resultDiv.appendChild(contentDiv);
+
+            documentsList.appendChild(resultDiv);
+          });
+        }
+
+        // Handle refresh models button click
+        refreshModelsBtn.addEventListener("click", function () {
+          showLoading();
+
+          // Fetch available models from the server
+          fetch("/models")
+            .then((response) => response.json())
+            .then((models) => {
+              // Clear the current options
+              modelSelect.innerHTML = "";
+
+              // Add the new options
+              models.forEach((model) => {
+                const option = document.createElement("option");
+                option.value = model;
+                option.textContent = model;
+                modelSelect.appendChild(option);
+              });
+
+              showNotification(
+                "Success",
+                `Found ${models.length} available models.`
+              );
+            })
+            .catch((error) => {
+              console.error("Error fetching models:", error);
+              showNotification(
+                "Error",
+                "Failed to fetch available models.",
+                true
+              );
+            })
+            .finally(() => {
+              hideLoading();
+            });
+        });
+
+        // Handle query submission
+        queryForm.addEventListener("submit", function (e) {
+          e.preventDefault();
+
+          const question = queryInput.value.trim();
+          if (!question) {
+            return;
+          }
+
+          const model = modelSelect.value;
+
+          // Add user message to chat
+          addMessage(question, true);
+
+          // Create a placeholder for the assistant's response
+          const assistantPlaceholder = document.createElement("div");
+          assistantPlaceholder.classList.add("message", "assistant-message");
+
+          const contentDiv = document.createElement("div");
+          contentDiv.classList.add("message-content");
+          contentDiv.textContent = "Searching the web...";
+
+          assistantPlaceholder.appendChild(contentDiv);
+          chatMessages.appendChild(assistantPlaceholder);
+          chatMessages.scrollTop = chatMessages.scrollHeight;
+
+          // Clear input
+          queryInput.value = "";
+
+          showLoading();
+
+          // First, get the search results
+          fetch("/query", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              question: question,
+              model: model,
+            }),
+          })
+            .then((response) => response.json())
+            .then((data) => {
+              if (data.error) {
+                contentDiv.textContent = `Error: ${data.error}`;
+                showNotification("Query Error", data.error, true);
+              } else {
+                // Display search results
+                displaySearchResults(data.documents);
+
+                // Update content to show we're now generating the answer
+                contentDiv.textContent = "Generating answer...";
+
+                // Now start streaming the response
+                const streamUrl = `/stream?question=${encodeURIComponent(
+                  question
+                )}&model=${encodeURIComponent(model)}`;
+                const eventSource = new EventSource(streamUrl);
+
+                let responseText = "";
+
+                console.log("Starting EventSource connection to:", streamUrl);
+
+                eventSource.onmessage = function (event) {
+                  console.log("Received event:", event.data);
+                  if (event.data === "[DONE]") {
+                    eventSource.close();
+                    hideLoading();
+                  } else {
+                    responseText += event.data;
+                    contentDiv.innerHTML = marked.parse(responseText);
+                    chatMessages.scrollTop = chatMessages.scrollHeight;
+                  }
+                };
+
+                eventSource.onerror = function (error) {
+                  console.error("EventSource error:", error);
+                  eventSource.close();
+                  if (!responseText) {
+                    contentDiv.textContent =
+                      "Error: Failed to generate response.";
+                  }
+                  hideLoading();
+                };
+
+                // Add event listener for when the connection is opened
+                eventSource.onopen = function () {
+                  console.log("EventSource connection opened");
+                };
+              }
+            })
+            .catch((error) => {
+              contentDiv.textContent = "Error: Failed to process query.";
+              showNotification(
+                "Query Error",
+                "An error occurred while processing your query.",
+                true
+              );
+              console.error("Query error:", error);
+              hideLoading();
+            });
+        });
+      });
+    </script>
+  </body>
+</html>

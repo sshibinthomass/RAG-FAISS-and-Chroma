@@ -1,0 +1,262 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Combined RAG System</title>
+    <link
+      rel="stylesheet"
+      href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css"
+    />
+    <link
+      rel="stylesheet"
+      href="{{ url_for('static', filename='css/style.css') }}"
+    />
+    <style>
+      .form-switch .form-check-input {
+        width: 3em;
+        height: 1.5em;
+      }
+      .system-toggle-container {
+        padding: 15px;
+        background-color: #f8f9fa;
+        border-radius: 8px;
+        margin-bottom: 20px;
+      }
+      .system-toggle-label {
+        font-weight: bold;
+        margin-bottom: 10px;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="container-fluid">
+      <div class="row">
+        <!-- Sidebar -->
+        <div class="col-md-3 sidebar">
+          <div class="sidebar-header">
+            <h3>Combined RAG System</h3>
+          </div>
+
+          <!-- System Toggle -->
+          <div class="sidebar-section system-toggle-container">
+            <div class="system-toggle-label">RAG System Type</div>
+            <div class="form-check form-switch">
+              <input class="form-check-input" type="checkbox" id="system-toggle"
+              {% if active_system == "web" %}checked{% endif %}>
+              <label class="form-check-label" for="system-toggle">
+                <span id="system-toggle-label"
+                  >{% if active_system == "pdf" %}PDF RAG{% else %}Web RAG{%
+                  endif %}</span
+                >
+              </label>
+            </div>
+            <div class="small text-muted mt-2">
+              <p>
+                <strong>PDF RAG:</strong> Search through your uploaded PDF
+                documents
+              </p>
+              <p><strong>Web RAG:</strong> Search the web using DuckDuckGo</p>
+            </div>
+          </div>
+
+          <!-- PDF-specific controls - only shown when PDF RAG is active -->
+          <div
+            id="pdf-controls"
+            class="{% if active_system != 'pdf' %}d-none{% endif %}"
+          >
+            <div class="sidebar-section">
+              <h5>Upload PDF</h5>
+              <form id="upload-form" enctype="multipart/form-data">
+                <div class="mb-3">
+                  <input
+                    class="form-control"
+                    type="file"
+                    id="pdf-file"
+                    accept=".pdf"
+                    aria-label="Upload PDF file"
+                  />
+                </div>
+                <button type="submit" class="btn btn-primary">Upload</button>
+              </form>
+            </div>
+
+            <div class="sidebar-section">
+              <h5>Indexed PDFs</h5>
+              <div class="pdf-list">
+                {% if pdfs %}
+                <ul class="list-group">
+                  {% for pdf in pdfs %}
+                  <li class="list-group-item">{{ pdf }}</li>
+                  {% endfor %}
+                </ul>
+                {% else %}
+                <p>No PDFs indexed yet.</p>
+                {% endif %}
+              </div>
+              <button
+                type="button"
+                id="reindex-btn"
+                class="btn btn-secondary mt-2"
+              >
+                Reindex All
+              </button>
+            </div>
+          </div>
+
+          <!-- Web RAG specific controls - only shown when Web RAG is active -->
+          <div
+            id="web-controls"
+            class="{% if active_system != 'web' %}d-none{% endif %}"
+          >
+            <div class="sidebar-section">
+              <h5>Web Search</h5>
+              <div class="small text-muted mb-3">
+                <p>Using DuckDuckGo to search the web for information.</p>
+                <p>
+                  Enter your question in the search box to get answers based on
+                  web content.
+                </p>
+              </div>
+            </div>
+          </div>
+
+          <div class="sidebar-section">
+            <h5>Model Selection</h5>
+            <div class="d-flex align-items-center mb-2">
+              <select
+                id="model-select"
+                class="form-select me-2"
+                aria-label="Select LLM model"
+              >
+                {% for model in models %}
+                <option value="{{ model }}">{{ model }}</option>
+                {% endfor %}
+              </select>
+              <button
+                id="refresh-models-btn"
+                class="btn btn-sm btn-secondary"
+                type="button"
+                title="Refresh model list"
+              >
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  width="16"
+                  height="16"
+                  fill="currentColor"
+                  class="bi bi-arrow-clockwise"
+                  viewBox="0 0 16 16"
+                >
+                  <path
+                    fill-rule="evenodd"
+                    d="M8 3a5 5 0 1 0 4.546 2.914.5.5 0 0 1 .908-.417A6 6 0 1 1 8 2v1z"
+                  />
+                  <path
+                    d="M8 4.466V.534a.25.25 0 0 1 .41-.192l2.36 1.966c.12.1.12.284 0 .384L8.41 4.658A.25.25 0 0 1 8 4.466z"
+                  />
+                </svg>
+              </button>
+            </div>
+            <div class="small text-muted mb-2">
+              Click the refresh button to update the model list from Ollama.
+            </div>
+          </div>
+
+          <!-- Vector Store options - only shown when PDF RAG is active -->
+          <div
+            id="vector-store-controls"
+            class="sidebar-section {% if active_system != 'pdf' %}d-none{% endif %}"
+          >
+            <h5>Vector Store</h5>
+            <div class="d-flex align-items-center mb-2">
+              <select
+                id="vector-store-select"
+                class="form-select me-2"
+                aria-label="Select vector store type"
+              >
+                <option value="faiss">FAISS</option>
+                <option value="chroma">ChromaDB</option>
+              </select>
+              <button
+                type="button"
+                id="switch-vector-store-btn"
+                class="btn btn-sm btn-secondary"
+              >
+                Switch
+              </button>
+            </div>
+            <div class="small text-muted mb-3">
+              <p>ChromaDB is faster for retrieval but uses more memory.</p>
+              <p>FAISS is more memory-efficient but slower for retrieval.</p>
+            </div>
+          </div>
+        </div>
+
+        <!-- Main Content -->
+        <div class="col-md-9 main-content">
+          <div class="chat-container">
+            <div id="chat-messages" class="chat-messages"></div>
+
+            <div class="chat-input-container">
+              <form id="query-form">
+                <div class="input-group">
+                  <input
+                    type="text"
+                    id="query-input"
+                    class="form-control"
+                    placeholder="{% if active_system == 'pdf' %}Ask a question about your PDFs...{% else %}Ask anything to search the web...{% endif %}"
+                  />
+                  <button type="submit" class="btn btn-primary">
+                    {% if active_system == 'pdf' %}Send{% else %}Search{% endif
+                    %}
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+
+          <div class="documents-container">
+            <h5 id="documents-heading">
+              {% if active_system == 'pdf' %}Retrieved Documents{% else %}Search
+              Results{% endif %}
+            </h5>
+            <div id="documents-list" class="documents-list"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Loading Overlay -->
+    <div id="loading-overlay" class="loading-overlay d-none">
+      <div class="spinner-border text-light" role="status">
+        <span class="visually-hidden">Loading...</span>
+      </div>
+    </div>
+
+    <!-- Toast Notifications -->
+    <div class="toast-container position-fixed bottom-0 end-0 p-3">
+      <div
+        id="toast"
+        class="toast"
+        role="alert"
+        aria-live="assertive"
+        aria-atomic="true"
+      >
+        <div class="toast-header">
+          <strong class="me-auto" id="toast-title">Notification</strong>
+          <button
+            type="button"
+            class="btn-close"
+            data-bs-dismiss="toast"
+            aria-label="Close"
+          ></button>
+        </div>
+        <div class="toast-body" id="toast-message"></div>
+      </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <script src="{{ url_for('static', filename='js/app.js') }}"></script>
+  </body>
+</html>
